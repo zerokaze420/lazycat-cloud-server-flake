@@ -39,6 +39,8 @@ NIXPKGS_ALLOW_UNFREE=1 nix profile install github:zerokaze420/lazycat-cloud-serv
 
 推荐在 NixOS 上使用 NixOS 模块安装，这样 `daemon`、`check`、代理和 TUN 相关功能可以获得所需的 `CAP_NET_ADMIN` 权限。Home Manager 模块只负责把 CLI 放入用户环境，无法授予 Linux capability。
 
+> 不能和 `lazycat-cloud-client` 同时启用。两者都会管理 LazyCat 本地客户端/daemon，并会争用本地控制端口、配置目录和 TUN 运行状态。需要使用 `hclient-cli` 时，请关闭 `services.lazycat-cloud-client` 和 `programs.lazycat-cloud-client`。
+
 ---
 
 ## NixOS 模块
@@ -99,6 +101,8 @@ NIXPKGS_ALLOW_UNFREE=1 nix profile install github:zerokaze420/lazycat-cloud-serv
 - 可选添加 unconfined AppArmor profile
 
 > 上游 `hclient-cli install` 是非 Nix 的托管安装流程，会尝试复制二进制、执行 `setcap`、写 systemd service。这个 flake 已由 NixOS 模块声明式管理 service 和 capability，因此不要再运行上游 install/upgrade/uninstall。
+>
+> 模块会拒绝和 `services.lazycat-cloud-client.enable = true` 同时启用；如果你之前安装了 LazyCat Cloud Client，也要关闭 Home Manager 里的 `programs.lazycat-cloud-client`，避免用户级客户端继续拉起同一套本地 daemon。
 
 ---
 
