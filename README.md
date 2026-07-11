@@ -61,6 +61,9 @@ NIXPKGS_ALLOW_UNFREE=1 nix profile install github:zerokaze420/lazycat-cloud-serv
 
           services.hclient-cli = {
             enable = true;
+            user = "your-user";
+            group = "users";
+            configFile = "/home/your-user/.config/hportal-client/hclient-cli.json";
             enableAppArmor = true;
             # package = pkgs.hclient-cli;
           };
@@ -77,14 +80,25 @@ NIXPKGS_ALLOW_UNFREE=1 nix profile install github:zerokaze420/lazycat-cloud-serv
 |------|------|------|------|
 | `services.hclient-cli.enable` | `bool` | `false` | 启用系统级安装 |
 | `services.hclient-cli.package` | `package` | `pkgs.hclient-cli` | 覆写使用的包 |
+| `services.hclient-cli.user` | `nullOr str` | `null` | daemon 运行用户，设为桌面用户可复用该用户的登录状态 |
+| `services.hclient-cli.group` | `nullOr str` | `null` | daemon 运行用户组 |
+| `services.hclient-cli.configFile` | `nullOr str` | `null` | 通过 `HCLIENT_CLI_CFG` 指定 daemon 使用的配置文件 |
+| `services.hclient-cli.daemon.enable` | `bool` | `true` | 启用声明式 systemd daemon |
+| `services.hclient-cli.daemon.tunMode` | `enum` | `"enabled"` | daemon 的 TUN 模式 |
+| `services.hclient-cli.daemon.proxyMode` | `enum` | `"enabled"` | daemon 的代理模式 |
+| `services.hclient-cli.daemon.proxyListenAddr` | `str` | `"127.0.0.1:61090"` | daemon 代理监听地址 |
 | `services.hclient-cli.enableAppArmor` | `bool` | `false` | 添加宽松 AppArmor 策略 |
 
 模块会自动：
 
 - 安装 `hclient-cli`
 - 通过 `security.wrappers.hclient-cli` 授予 `cap_net_admin+ep`
+- 创建 `hclient-cli.service`，运行 `hclient-cli daemon`
 - 让 `${pkgs.hclient-cli}/bin/hclient-cli` 优先进入 `/run/wrappers/bin/hclient-cli`
+- 拦截上游 `install` / `upgrade` / `uninstall`，避免写入 `/usr/local/bin` 和 `/etc/systemd/system`
 - 可选添加 unconfined AppArmor profile
+
+> 上游 `hclient-cli install` 是非 Nix 的托管安装流程，会尝试复制二进制、执行 `setcap`、写 systemd service。这个 flake 已由 NixOS 模块声明式管理 service 和 capability，因此不要再运行上游 install/upgrade/uninstall。
 
 ---
 
@@ -152,12 +166,12 @@ NIXPKGS_ALLOW_UNFREE=1 nix profile install github:zerokaze420/lazycat-cloud-serv
 hclient-cli --help
 hclient-cli tui
 hclient-cli check
-hclient-cli daemon --tun auto --proxy auto
+hclient-cli daemon --tun enabled --proxy enabled
 hclient-cli login qr
 hclient-cli box list
 ```
 
-`hclient-cli install` 和 `hclient-cli upgrade` 是上游 CLI 自带的托管安装/升级流程。在 Nix 环境中通常建议优先通过 flake 更新版本，避免绕过 Nix store 管理。
+`hclient-cli install`、`hclient-cli upgrade` 和 `hclient-cli uninstall` 是上游 CLI 自带的托管安装/升级流程，会被本 flake 的 wrapper 拦截。在 Nix 环境中请通过 NixOS module 管理 daemon，通过 flake 更新版本。
 
 ---
 

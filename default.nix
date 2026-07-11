@@ -24,6 +24,23 @@ stdenv.mkDerivation (finalAttrs: {
 
     cat > $out/bin/hclient-cli << 'WRAPPEREOF'
 #!/bin/sh
+for arg in "$@"; do
+  case "$arg" in
+    install|upgrade|uninstall)
+      cat >&2 <<'MSG'
+hclient-cli is managed by Nix.
+
+The upstream managed install commands write to /usr/local/bin and
+/etc/systemd/system, which is not compatible with this flake.
+
+On NixOS, enable services.hclient-cli and let the module manage the daemon.
+For upgrades, update the flake input or package version instead.
+MSG
+      exit 1
+      ;;
+  esac
+done
+
 if [ -x /run/wrappers/bin/hclient-cli ]; then
   exec /run/wrappers/bin/hclient-cli "$@"
 fi
