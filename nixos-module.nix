@@ -104,7 +104,10 @@ in
       };
 
       serviceConfig = {
-        ExecStartPre = "+${pkgs.kmod}/bin/modprobe tun";
+        ExecStartPre = [
+          "+${pkgs.kmod}/bin/modprobe tun"
+          "-${cfg.package}/bin/hclient-cli stop-daemon"
+        ];
         ExecStart = "${cfg.package}/bin/hclient-cli daemon --tun ${cfg.daemon.tunMode} --proxy ${cfg.daemon.proxyMode} --proxy-listen-addr ${lib.escapeShellArg cfg.daemon.proxyListenAddr}";
         Restart = "on-failure";
         RestartSec = 5;
