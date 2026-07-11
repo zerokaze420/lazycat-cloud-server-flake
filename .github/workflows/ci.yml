@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths: ['**.nix', '.github/**', 'flake.lock']
+  pull_request:
+    branches: [main]
+    paths: ['**.nix', '.github/**', 'flake.lock']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: Flake show
+        run: nix flake show
+      - name: Flake check
+        if: github.event_name == 'pull_request'
+        run: nix flake check --impure
+        env:
+          NIXPKGS_ALLOW_UNFREE: 1
