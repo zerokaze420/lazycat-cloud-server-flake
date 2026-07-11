@@ -77,6 +77,17 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = !(lib.attrByPath [ "services" "lazycat-cloud-client" "enable" ] false config);
+        message = ''
+          services.hclient-cli cannot be enabled together with
+          services.lazycat-cloud-client. Both manage the LazyCat local client
+          daemon and conflict on local control ports/configuration.
+        '';
+      }
+    ];
+
     boot.kernelModules = [
       "tun"
     ];
