@@ -63,7 +63,7 @@ NIXPKGS_ALLOW_UNFREE=1 nix profile install github:zerokaze420/lazycat-cloud-serv
             enable = true;
             user = "your-user";
             group = "users";
-            configFile = "/home/your-user/.config/hportal-client/hclient-cli.json";
+            configDir = "/home/your-user/.config/hportal-client";
             enableAppArmor = true;
             # package = pkgs.hclient-cli;
           };
@@ -82,7 +82,7 @@ NIXPKGS_ALLOW_UNFREE=1 nix profile install github:zerokaze420/lazycat-cloud-serv
 | `services.hclient-cli.package` | `package` | `pkgs.hclient-cli` | 覆写使用的包 |
 | `services.hclient-cli.user` | `nullOr str` | `null` | daemon 运行用户，设为桌面用户可复用该用户的登录状态 |
 | `services.hclient-cli.group` | `nullOr str` | `null` | daemon 运行用户组 |
-| `services.hclient-cli.configFile` | `nullOr str` | `null` | 通过 `HCLIENT_CLI_CFG` 指定 daemon 使用的配置文件 |
+| `services.hclient-cli.configDir` | `nullOr str` | `null` | 通过 `HCLIENT_CLI_CFG` 指定 daemon 使用的配置目录 |
 | `services.hclient-cli.daemon.enable` | `bool` | `true` | 启用声明式 systemd daemon |
 | `services.hclient-cli.daemon.tunMode` | `enum` | `"enabled"` | daemon 的 TUN 模式 |
 | `services.hclient-cli.daemon.proxyMode` | `enum` | `"enabled"` | daemon 的代理模式 |

@@ -27,12 +27,12 @@ in
       description = "Group to run the daemon as when services.hclient-cli.user is set.";
     };
 
-    configFile = lib.mkOption {
+    configDir = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      example = "/home/tux/.config/hportal-client/hclient-cli.json";
+      example = "/home/tux/.config/hportal-client";
       description = ''
-        Optional hclient-cli config file used by the daemon via HCLIENT_CLI_CFG.
+        Optional hclient-cli config directory used by the daemon via HCLIENT_CLI_CFG.
         Leave null to use the upstream default for the selected daemon user.
       '';
     };
@@ -95,8 +95,8 @@ in
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
 
-      environment = lib.optionalAttrs (cfg.configFile != null) {
-        HCLIENT_CLI_CFG = cfg.configFile;
+      environment = lib.optionalAttrs (cfg.configDir != null) {
+        HCLIENT_CLI_CFG = cfg.configDir;
       };
 
       serviceConfig = {
