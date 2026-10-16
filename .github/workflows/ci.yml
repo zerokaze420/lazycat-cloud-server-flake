@@ -89,7 +89,8 @@ jobs:
       - name: Build hclient-cli package
         run: nix build --no-link ".#packages.${{ matrix.system }}.hclient-cli"
       - name: Smoke test the wrapped binary
-        # Skipped only for the cross-built Intel macOS target.
+        # Runs wherever the target is built natively; gated so a future
+        # cross-built entry can opt out instead of failing on exec format.
         if: matrix.native
         run: |
           store_path=$(nix build --no-link --print-out-paths ".#packages.${{ matrix.system }}.default")
