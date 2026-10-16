@@ -216,6 +216,8 @@ nix run github:zerokaze420/lazycat-cloud-server-flake -- --version
 
 其他系统（如 `riscv64-linux`）上游没有对应二进制，不在支持范围内。
 
+> `x86_64-darwin` 比较特殊：nixpkgs 26.11（当前 nixos-unstable）已经彻底移除该平台，`import nixpkgs { system = "x86_64-darwin"; }` 会直接报错。因此 flake 用单独的 `nixpkgs-darwin` input（`nixpkgs-26.05-darwin`，即 nixpkgs 自己推荐的 Intel macOS 分支）来构建这个包。如果你在 Intel macOS 上通过 overlay 使用，`final` 来自你自己的 nixpkgs，那就没法求值，请改用 flake 的 `packages` 输出。该分支的安全更新支持到 2026 年底。
+>
 > macOS 上无法提供 TUN / daemon 能力：capability、`systemd` 和 `/run/wrappers` 都是 Linux 专有机制。Darwin 用户只能通过包或 Home Manager 模块获得 CLI 本身。
 
 ---
@@ -231,7 +233,7 @@ nix build
 ./result/bin/hclient-cli --help
 
 # 查看 flake 输出
-nix flake show --no-build
+nix flake show
 ```
 
 > 因为 flake 自身启用了 `config.allowUnfree`，本地 `nix flake check` / `nix build` 不再需要 `--impure` 或 `NIXPKGS_ALLOW_UNFREE=1`。
@@ -239,8 +241,10 @@ nix flake show --no-build
 CI 在 `.github/workflows/ci.yml` 中定义，包含三个 job：
 
 - `plan`：用 `nix eval --json .#systems` 读取 flake 声明的系统列表，作为构建矩阵的唯一来源（新增系统会自动新增 CI job）。
-- `eval`：`nix flake show --no-build` + `nix flake check --all-systems --no-build`，校验所有系统都能求值。
-- `build`：在原生 runner 上为每个系统真实构建两个 package，并对产物做冒烟测试（`x86_64-darwin` 为交叉构建，跳过执行）。
+- `eval`：`nix flake show` + `nix flake check --all-systems --no-build`，校验所有系统都能求值。
+- `build`：在原生 runner 上为每个系统真实构建两个 package，并对产物做冒烟测试。
+
+各系统对应的 runner：`x86_64-linux` → `ubuntu-22.04`，`aarch64-linux` → `ubuntu-24.04-arm`，`x86_64-darwin` → `macos-15-intel`，`aarch64-darwin` → `macos-14`。
 
 构建缓存使用 `DeterminateSystems/magic-nix-cache-action`（PR）和可选的 Cachix（配置 `CACHIX_AUTH_TOKEN` secret 后自动启用，未配置时跳过）。
 
