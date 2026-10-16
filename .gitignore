@@ -1,0 +1,6 @@
+# Local scratch space used for downloads, nix caches and validation harnesses.
+.work/
+
+# nix build / nix develop artefacts
+result
+result-*

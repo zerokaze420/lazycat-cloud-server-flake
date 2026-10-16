@@ -2,6 +2,10 @@
 
 let
   cfg = config.services.hclient-cli;
+
+  # This module creates a systemd unit and a security.wrappers entry, both of
+  # which only exist on Linux. Darwin users should use the Home Manager module.
+  linuxOnly = pkgs.stdenv.hostPlatform.isLinux;
 in
 {
   options.services.hclient-cli = {
@@ -78,6 +82,15 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion = linuxOnly;
+        message = ''
+          services.hclient-cli requires Linux: it creates a systemd service and
+          a security.wrappers entry with cap_net_admin. On Darwin, use the Home
+          Manager module (programs.hclient-cli) instead; it installs the CLI
+          without network capabilities.
+        '';
+      }
       {
         assertion = !(lib.attrByPath [ "services" "lazycat-cloud-client" "enable" ] false config);
         message = ''

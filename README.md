@@ -2,7 +2,7 @@
 
 [![Nix Flake Check](https://img.shields.io/badge/flake-check-passing-brightgreen)](./flake.nix)
 [![License](https://img.shields.io/badge/license-unfree-red)](./default.nix)
-[![Platform](https://img.shields.io/badge/platform-x86__64--linux-blue)](./default.nix)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS-blue)](./default.nix)
 
 `hclient-cli` 的 Nix flake 封装，面向 LazyCat Microserver 的命令行登录、盒子管理、TUI、daemon、代理和 TUN 网络场景。
 
@@ -14,16 +14,16 @@
 
 ```bash
 # 查看帮助
-NIXPKGS_ALLOW_UNFREE=1 nix run github:zerokaze420/lazycat-cloud-server-flake --impure -- --help
+nix run github:zerokaze420/lazycat-cloud-server-flake -- --help
 
 # 进入临时 shell
-NIXPKGS_ALLOW_UNFREE=1 nix shell github:zerokaze420/lazycat-cloud-server-flake --impure
+nix shell github:zerokaze420/lazycat-cloud-server-flake
 
 # 安装到 profile
-NIXPKGS_ALLOW_UNFREE=1 nix profile install github:zerokaze420/lazycat-cloud-server-flake --impure
+nix profile install github:zerokaze420/lazycat-cloud-server-flake
 ```
 
-> 注意：此包使用 `unfree` 许可证，直接通过 flake 运行时需要 `NIXPKGS_ALLOW_UNFREE=1` 和 `--impure`。
+> 注意：此包使用 `unfree` 许可证。本 flake 在自己的 nixpkgs 实例上启用了 `config.allowUnfree`，因此上面这些命令不再需要 `--impure` 和 `NIXPKGS_ALLOW_UNFREE=1`。如果你是通过 overlay 在自己的 nixpkgs 里使用该包，则仍需自行允许 unfree。
 
 ---
 
@@ -32,6 +32,7 @@ NIXPKGS_ALLOW_UNFREE=1 nix profile install github:zerokaze420/lazycat-cloud-serv
 | 特性 | NixOS 模块 | Home Manager 模块 | 直接 `nix run/shell/profile` |
 |------|-----------|------------------|-----------------------------|
 | 安装范围 | 系统级 | 用户级 | 当前命令或用户 profile |
+| 支持系统 | 仅 Linux | Linux + macOS | Linux + macOS |
 | CLI 基础命令 | 支持 | 支持 | 支持 |
 | TUN / daemon 网络能力 | 完整支持 | 不处理权限 | 不处理权限 |
 | `CAP_NET_ADMIN` | 自动配置 | 不支持 | 不支持 |
@@ -39,6 +40,8 @@ NIXPKGS_ALLOW_UNFREE=1 nix profile install github:zerokaze420/lazycat-cloud-serv
 
 推荐在 NixOS 上使用 NixOS 模块安装，这样 `daemon`、`check`、代理和 TUN 相关功能可以获得所需的 `CAP_NET_ADMIN` 权限。Home Manager 模块只负责把 CLI 放入用户环境，无法授予 Linux capability。
 
+> NixOS 模块依赖 systemd 和 `security.wrappers`，只能在 Linux 上使用；在 Darwin 上启用会直接断言失败，请改用 Home Manager 模块。
+>
 > 不能和 `lazycat-cloud-client` 同时启用。两者都会管理 LazyCat 本地客户端/daemon，并会争用本地控制端口、配置目录和 TUN 运行状态。需要使用 `hclient-cli` 时，请关闭 `services.lazycat-cloud-client` 和 `programs.lazycat-cloud-client`。
 
 ---
@@ -181,7 +184,7 @@ hclient-cli box list
 
 ## 非自由软件
 
-此包使用 `unfree` 许可证。NixOS 配置中可按包名允许：
+此包使用 `unfree` 许可证。通过 flake 的 `packages` 使用时已由 flake 自动允许；如果你通过 overlay 把它放进自己的 nixpkgs，则需要自行允许，例如按包名：
 
 ```nix
 {
@@ -192,30 +195,54 @@ hclient-cli box list
 }
 ```
 
-临时运行可使用：
+临时运行可直接使用：
 
 ```bash
-NIXPKGS_ALLOW_UNFREE=1 nix run github:zerokaze420/lazycat-cloud-server-flake --impure -- --version
+nix run github:zerokaze420/lazycat-cloud-server-flake -- --version
 ```
 
 ---
 
 ## 架构
 
-| 架构 | 状态 |
-|------|------|
-| `x86_64-linux` | 支持 |
-| `aarch64-linux` | 暂不支持，上游当前链接只提供 amd64 二进制 |
+`default.nix` 按当前系统自动选择上游发布的对应二进制，`flake.nix` 声明的系统列表与之一一对应：
+
+| 系统 | 上游二进制 | 状态 |
+|------|-----------|------|
+| `x86_64-linux` | `hclient-cli-linux-amd64` | 支持 |
+| `aarch64-linux` | `hclient-cli-linux-arm64` | 支持 |
+| `x86_64-darwin` | `hclient-cli-darwin-amd64` | 支持 |
+| `aarch64-darwin` | `hclient-cli-darwin-arm64` | 支持 |
+
+其他系统（如 `riscv64-linux`）上游没有对应二进制，不在支持范围内。
+
+> macOS 上无法提供 TUN / daemon 能力：capability、`systemd` 和 `/run/wrappers` 都是 Linux 专有机制。Darwin 用户只能通过包或 Home Manager 模块获得 CLI 本身。
 
 ---
 
 ## 开发
 
 ```bash
-NIXPKGS_ALLOW_UNFREE=1 nix flake check --impure
-NIXPKGS_ALLOW_UNFREE=1 nix build --impure
+# 评估所有声明的系统（不构建）
+nix flake check --all-systems --no-build
+
+# 构建本机包
+nix build
 ./result/bin/hclient-cli --help
+
+# 查看 flake 输出
+nix flake show --no-build
 ```
+
+> 因为 flake 自身启用了 `config.allowUnfree`，本地 `nix flake check` / `nix build` 不再需要 `--impure` 或 `NIXPKGS_ALLOW_UNFREE=1`。
+
+CI 在 `.github/workflows/ci.yml` 中定义，包含三个 job：
+
+- `plan`：用 `nix eval --json .#systems` 读取 flake 声明的系统列表，作为构建矩阵的唯一来源（新增系统会自动新增 CI job）。
+- `eval`：`nix flake show --no-build` + `nix flake check --all-systems --no-build`，校验所有系统都能求值。
+- `build`：在原生 runner 上为每个系统真实构建两个 package，并对产物做冒烟测试（`x86_64-darwin` 为交叉构建，跳过执行）。
+
+构建缓存使用 `DeterminateSystems/magic-nix-cache-action`（PR）和可选的 Cachix（配置 `CACHIX_AUTH_TOKEN` secret 后自动启用，未配置时跳过）。
 
 项目结构：
 

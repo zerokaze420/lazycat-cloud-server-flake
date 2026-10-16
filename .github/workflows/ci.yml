@@ -7,17 +7,93 @@ on:
   pull_request:
     branches: [main]
     paths: ['**.nix', '.github/**', 'flake.lock']
+  workflow_dispatch:
+  schedule:
+    # Catch upstream nixpkgs / vendor CDN breakage even without a commit.
+    - cron: '0 3 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  check:
+  # Single source of truth: the systems the flake declares drive the matrix, so
+  # adding a platform to flake.nix automatically adds a CI job for it.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      systems: ${{ steps.matrix.outputs.systems }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: Resolve supported systems
+        id: matrix
+        run: |
+          echo "systems=$(nix eval --json .#systems)" >> "$GITHUB_OUTPUT"
+
+  eval:
+    needs: plan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
       - name: Flake show
         run: nix flake show
-      - name: Flake check
+      - name: Evaluate every declared system
+        run: nix flake check --all-systems --no-build
+      - name: Verify flake evaluation left the tree untouched
+        run: git diff --exit-code --stat
+
+  # Each target system is built on a matching native runner, so the produced
+  # binary is always directly executable. x86_64-darwin (macos-13) is the
+  # exception: it is cross-built on Intel hardware and cannot be executed there.
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJSON(needs.plan.outputs.systems) }}
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-22.04
+            native: true
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            native: true
+          - system: x86_64-darwin
+            runner: macos-13
+            native: false
+          - system: aarch64-darwin
+            runner: macos-14
+            native: true
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
         if: github.event_name == 'pull_request'
-        run: nix flake check --impure
+      # Optional binary cache. Activates only when a CACHIX_AUTH_TOKEN secret
+      # exists, so forks and token-less runs still pass.
+      - uses: cachix/cachix-action@v15
+        if: ${{ env.CACHIX_AUTH_TOKEN != '' }}
+        with:
+          name: lazycat-cloud-server-flake
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         env:
-          NIXPKGS_ALLOW_UNFREE: 1
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Build default package
+        run: |
+          nix build --no-link --print-out-paths ".#packages.${{ matrix.system }}.default"
+      - name: Build hclient-cli package
+        run: nix build --no-link ".#packages.${{ matrix.system }}.hclient-cli"
+      - name: Smoke test the wrapped binary
+        # Skipped only for the cross-built Intel macOS target.
+        if: matrix.native
+        run: |
+          store_path=$(nix build --no-link --print-out-paths ".#packages.${{ matrix.system }}.default")
+          test -x "$store_path/bin/hclient-cli"
+          test -x "$store_path/lib/hclient-cli/.hclient-cli-wrapped"
+          "$store_path/bin/hclient-cli" --help

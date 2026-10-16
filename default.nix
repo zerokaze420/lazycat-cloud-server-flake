@@ -3,13 +3,47 @@
 , fetchurl
 }:
 
-stdenv.mkDerivation (finalAttrs: {
-  pname = "hclient-cli";
+let
   version = "1.1.3";
 
+  # Upstream publishes one prebuilt binary per OS/architecture. The CDN has no
+  # soft-404 behaviour: an unpublished artefact returns a real 404, so every
+  # entry below is verified to exist.
+  sources = [
+    {
+      system = "x86_64-linux";
+      file = "hclient-cli-linux-amd64";
+      hash = "sha256-d7/cSfOr//0bHBy46hliqAaAo9zfnDYKjxA9ZAw02E4=";
+    }
+    {
+      system = "aarch64-linux";
+      file = "hclient-cli-linux-arm64";
+      hash = "sha256-sLuymeG3mbx0gRViI04K6T2XuP8S9QkbHcX7xmxNiWM=";
+    }
+    {
+      system = "x86_64-darwin";
+      file = "hclient-cli-darwin-amd64";
+      hash = "sha256-WEuYTLjdeCcBImtPqq1YwiET2pVwfjdPO8R8+hdZyNE=";
+    }
+    {
+      system = "aarch64-darwin";
+      file = "hclient-cli-darwin-arm64";
+      hash = "sha256-cTfwp4nE99Zta2D4M79q+pobGD8bY2LNwh5lrpZh/Qs=";
+    }
+  ];
+
+  # Resolved after the platform is known, so evaluation stays derivational and
+  # no branch needs to throw.
+  source = lib.findFirst (s: s.system == stdenv.hostPlatform.system) null sources;
+in
+
+stdenv.mkDerivation (finalAttrs: {
+  pname = "hclient-cli";
+  inherit version;
+
   src = fetchurl {
-    url = "https://dl.lazycatmicroserver.com/hclient-cli/v${finalAttrs.version}/hclient-cli-linux-amd64";
-    hash = "sha256-d7/cSfOr//0bHBy46hliqAaAo9zfnDYKjxA9ZAw02E4=";
+    url = "https://dl.lazycatmicroserver.com/hclient-cli/v${version}/${source.file}";
+    inherit (source) hash;
   };
 
   dontUnpack = true;
@@ -58,8 +92,7 @@ WRAPPEREOF
     license = licenses.unfree;
     sourceProvenance = with sourceTypes; [ binaryNativeCode ];
     mainProgram = "hclient-cli";
-    platforms = [ "x86_64-linux" ];
-    badPlatforms = [ "aarch64-linux" ];
+    platforms = map (s: s.system) sources;
     maintainers = with maintainers; [ ];
   };
 })
