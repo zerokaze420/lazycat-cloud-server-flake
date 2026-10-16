@@ -20,19 +20,31 @@ permissions:
   contents: read
 
 jobs:
-  # Single source of truth: the systems the flake declares drive the matrix, so
-  # adding a platform to flake.nix automatically adds a CI job for it.
+  # Single source of truth: the matrices are read from the flake itself, so
+  # adding a platform to flake.nix automatically adds CI jobs for it.
   plan:
     runs-on: ubuntu-latest
     outputs:
       systems: ${{ steps.matrix.outputs.systems }}
+      targets: ${{ steps.matrix.outputs.targets }}
+      include: ${{ steps.matrix.outputs.include }}
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
-      - name: Resolve supported systems
+      - name: Resolve build targets and declared systems
         id: matrix
         run: |
-          echo "systems=$(nix eval --json .#systems)" >> "$GITHUB_OUTPUT"
+          systems=$(nix eval --json .#systems)
+          targets=$(nix eval --json .#ci.buildTargets)
+          # Only targets whose system is actually declared in `systems` get a
+          # native job; riscv64-linux is excluded here and handled below.
+          include=$(jq -nc --argjson s "$systems" --argjson t "$targets" \
+            '$t | to_entries | map(select(.key as $k | $s | index($k))) | map({ system: .key, runner: .value })')
+          {
+            echo "systems=$systems"
+            echo "targets=$targets"
+            echo "include=$include"
+          } >> "$GITHUB_OUTPUT"
 
   eval:
     needs: plan
@@ -47,6 +59,32 @@ jobs:
       - name: Verify flake evaluation left the tree untouched
         run: git diff --exit-code --stat
 
+  # riscv64 has no GitHub-hosted runner and nixpkgs cannot bootstrap a riscv64
+  # stdenv from x86_64, so the package is cross-compiled with the native
+  # bootstrap kept intact, then executed under user-mode emulation. Direct
+  # qemu invocation is used instead of binfmt_misc registration, which needs
+  # privileged setup and is flakier on hosted runners.
+  riscv64:
+    needs: plan
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: Build the riscv64 cross package
+        id: pkg
+        run: |
+          out=$(nix build --no-link --print-out-paths .#packages.x86_64-linux.hclient-cli-riscv64)
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+      - name: Assert the artefact is really RISC-V
+        run: |
+          file "${{ steps.pkg.outputs.out }}/lib/hclient-cli/.hclient-cli-wrapped" | tee /tmp/type.txt
+          grep -q 'RISC-V' /tmp/type.txt
+      - name: Smoke test under qemu user-mode emulation
+        run: |
+          qemu=$(nix build --no-link --print-out-paths --impure --expr \
+            'let f = builtins.getFlake (toString ./.); p = import f.inputs.nixpkgs { system = "x86_64-linux"; }; in p.qemu-user')
+          "$qemu/bin/qemu-riscv64" "${{ steps.pkg.outputs.out }}/lib/hclient-cli/.hclient-cli-wrapped" --help
+
   # Each target system is built on a matching native runner, so the produced
   # binary is always directly executable and the smoke test can run everywhere.
   build:
@@ -54,20 +92,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        system: ${{ fromJSON(needs.plan.outputs.systems) }}
-        include:
-          - system: x86_64-linux
-            runner: ubuntu-22.04
-            native: true
-          - system: aarch64-linux
-            runner: ubuntu-24.04-arm
-            native: true
-          - system: x86_64-darwin
-            runner: macos-15-intel
-            native: true
-          - system: aarch64-darwin
-            runner: macos-14
-            native: true
+        include: ${{ fromJSON(needs.plan.outputs.include) }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -89,9 +114,6 @@ jobs:
       - name: Build hclient-cli package
         run: nix build --no-link ".#packages.${{ matrix.system }}.hclient-cli"
       - name: Smoke test the wrapped binary
-        # Runs wherever the target is built natively; gated so a future
-        # cross-built entry can opt out instead of failing on exec format.
-        if: matrix.native
         run: |
           store_path=$(nix build --no-link --print-out-paths ".#packages.${{ matrix.system }}.default")
           test -x "$store_path/bin/hclient-cli"

@@ -13,46 +13,60 @@
   outputs = { self, nixpkgs, nixpkgs-darwin }: let
     lib = nixpkgs.lib;
 
-    # Platforms upstream actually publishes a binary for. default.nix selects
-    # the matching artefact from this same set.
+    # Platforms upstream publishes a binary for, as flake systems. riscv64-linux
+    # is listed because nixpkgs exposes it, but building it natively needs a
+    # riscv64 builder: nixpkgs ships `bootstrap-tools` as a prebuilt fixed-output
+    # derivation, so an x86_64 machine cannot produce a riscv64 stdenv. From a
+    # x86_64 or aarch64 host, use the cross outputs below instead.
     systems = [
       "x86_64-linux"
       "aarch64-linux"
+      "riscv64-linux"
       "x86_64-darwin"
       "aarch64-darwin"
     ];
 
-    forAllSystems = lib.genAttrs systems;
+    # Hosts that can cross-compile to riscv64 while keeping a native bootstrap.
+    riscvCrossHosts = [ "x86_64-linux" "aarch64-linux" ];
 
-    # Route each system to a nixpkgs that still supports it.
+    # Systems buildable on GitHub-hosted runners, mapped to their runner.
+    # riscv64-linux is deliberately absent: it is cross-built and emulated in a
+    # dedicated CI job rather than built natively.
+    ciBuildTargets = {
+      "x86_64-linux" = "ubuntu-22.04";
+      "aarch64-linux" = "ubuntu-24.04-arm";
+      "x86_64-darwin" = "macos-15-intel";
+      "aarch64-darwin" = "macos-14";
+    };
+
+    # Intel macOS needs a nixpkgs that still supports it.
     nixpkgsFor = system:
       if system == "x86_64-darwin" then nixpkgs-darwin else nixpkgs;
 
-    # The package is unfree, so allow it on the flake's own nixpkgs instance.
-    # Consumers using the overlay keep their own nixpkgs config.
-    mkPkgs = system:
-      if lib.elem system systems then
-        import (nixpkgsFor system) {
-          inherit system;
-          config.allowUnfree = true;
-        }
-      else
-        throw ''
-          lazycat-cloud-server-flake: unsupported system "${system}".
+    forAllSystems = lib.genAttrs systems;
 
-          Upstream only publishes binaries for:
-            ${lib.concatStringsSep ", " systems}
-
-          Other systems (for example riscv64-linux) have no upstream artefact.
-        '';
+    mkPkgs = system: import (nixpkgsFor system) {
+      inherit system;
+      config.allowUnfree = true;
+    };
   in
   {
     packages = forAllSystems (system: let
       pkgs = mkPkgs system;
-    in {
-      default = pkgs.callPackage ./default.nix { };
-      hclient-cli = pkgs.callPackage ./default.nix { };
-    });
+      native = {
+        default = pkgs.callPackage ./default.nix { };
+        hclient-cli = pkgs.callPackage ./default.nix { };
+      };
+      # Cross-compiled riscv64 build, available only from hosts that can
+      # produce it without a riscv64 builder.
+      crossRiscv = lib.optionalAttrs (lib.elem system riscvCrossHosts) {
+        hclient-cli-riscv64 = pkgs.pkgsCross.riscv64.callPackage ./default.nix { };
+      };
+    in native // crossRiscv);
+
+    # Convenience aliases for the riscv64 build, one entry point per able host.
+    riscv64Packages =
+      lib.genAttrs riscvCrossHosts (system: self.packages.${system}.hclient-cli-riscv64);
 
     # The overlay is applied to whatever nixpkgs the consumer already uses. On
     # x86_64-darwin with nixos-unstable that nixpkgs cannot evaluate at all, so
@@ -76,8 +90,12 @@
       default = self.homeManagerModules.hclient-cli;
     };
 
-    # Consumed by CI so the workflow matrix stays in sync with the systems
-    # declared here instead of hardcoding its own list.
+    # Consumed by CI so its matrices stay in sync with what is declared here
+    # instead of hardcoding lists of their own.
     inherit systems;
+    ci = {
+      buildTargets = ciBuildTargets;
+      riscvCrossBuilders = riscvCrossHosts;
+    };
   };
 }

@@ -21,6 +21,11 @@ let
       hash = "sha256-sLuymeG3mbx0gRViI04K6T2XuP8S9QkbHcX7xmxNiWM=";
     }
     {
+      system = "riscv64-linux";
+      file = "hclient-cli-linux-riscv64";
+      hash = "sha256-f4UXU7fwx1peGU+GjZ65TPMuyCSvQUja86dvTr5szdU=";
+    }
+    {
       system = "x86_64-darwin";
       file = "hclient-cli-darwin-amd64";
       hash = "sha256-WEuYTLjdeCcBImtPqq1YwiET2pVwfjdPO8R8+hdZyNE=";

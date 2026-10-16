@@ -2,7 +2,7 @@
 
 [![Nix Flake Check](https://img.shields.io/badge/flake-check-passing-brightgreen)](./flake.nix)
 [![License](https://img.shields.io/badge/license-unfree-red)](./default.nix)
-[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS-blue)](./default.nix)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20riscv64-blue)](./default.nix)
 
 `hclient-cli` 的 Nix flake 封装，面向 LazyCat Microserver 的命令行登录、盒子管理、TUI、daemon、代理和 TUN 网络场景。
 
@@ -211,14 +211,37 @@ nix run github:zerokaze420/lazycat-cloud-server-flake -- --version
 |------|-----------|------|
 | `x86_64-linux` | `hclient-cli-linux-amd64` | 支持 |
 | `aarch64-linux` | `hclient-cli-linux-arm64` | 支持 |
+| `riscv64-linux` | `hclient-cli-linux-riscv64` | 支持（原生需 riscv64 机器，否则用交叉输出） |
 | `x86_64-darwin` | `hclient-cli-darwin-amd64` | 支持 |
 | `aarch64-darwin` | `hclient-cli-darwin-arm64` | 支持 |
 
-其他系统（如 `riscv64-linux`）上游没有对应二进制，不在支持范围内。
+其他系统（如 `loongarch64-linux`、`armv7l-linux`、`i686-linux`、`powerpc64le-linux`）上游没有对应二进制，不在支持范围内。
+
+### riscv64
+
+上游确实提供 riscv64 静态二进制（`ELF 64-bit LSB executable, UCB RISC-V, double-float ABI`），但它在 Nix 里比较特殊：
+
+- **原生构建需要 riscv64 机器。** nixpkgs 把 `bootstrap-tools` 作为预编译的 fixed-output derivation 发布，所以 x86_64 机器无法从零构建出 riscv64 的 stdenv，会直接报 `platform mismatch`。在真正的 riscv64 主机上 `packages.riscv64-linux` 可以正常构建，但 GitHub 没有 riscv64 runner。
+- **交叉编译可用，且已验证。** 从 `x86_64-linux` / `aarch64-linux` 用 `pkgsCross.riscv64` 构建时，bootstrap 保持原生，只有 `hostPlatform` 变成 riscv64，因此可以正常构建：
+
+```bash
+nix build .#packages.x86_64-linux.hclient-cli-riscv64
+# 或别名
+nix build .#riscv64Packages.x86_64-linux
+
+# 在非 riscv64 机器上执行（用户态模拟）
+qemu=$(nix build --no-link --print-out-paths --impure --expr \
+  'let f = builtins.getFlake (toString ./.); p = import f.inputs.nixpkgs { system = "x86_64-linux"; }; in p.qemu-user')
+"$qemu/bin/qemu-riscv64" ./result/lib/hclient-cli/.hclient-cli-wrapped --help
+```
+
+上面的 qemu 执行路径已在本仓库实测通过。
 
 > `x86_64-darwin` 比较特殊：nixpkgs 26.11（当前 nixos-unstable）已经彻底移除该平台，`import nixpkgs { system = "x86_64-darwin"; }` 会直接报错。因此 flake 用单独的 `nixpkgs-darwin` input（`nixpkgs-26.05-darwin`，即 nixpkgs 自己推荐的 Intel macOS 分支）来构建这个包。如果你在 Intel macOS 上通过 overlay 使用，`final` 来自你自己的 nixpkgs，那就没法求值，请改用 flake 的 `packages` 输出。该分支的安全更新支持到 2026 年底。
 >
 > macOS 上无法提供 TUN / daemon 能力：capability、`systemd` 和 `/run/wrappers` 都是 Linux 专有机制。Darwin 用户只能通过包或 Home Manager 模块获得 CLI 本身。
+>
+> riscv64 的 NixOS 模块路径与其他 Linux 相同（systemd + `security.wrappers`），但需要内核支持 `tun`。
 
 ---
 
@@ -238,13 +261,16 @@ nix flake show
 
 > 因为 flake 自身启用了 `config.allowUnfree`，本地 `nix flake check` / `nix build` 不再需要 `--impure` 或 `NIXPKGS_ALLOW_UNFREE=1`。
 
-CI 在 `.github/workflows/ci.yml` 中定义，包含三个 job：
+CI 在 `.github/workflows/ci.yml` 中定义，包含四个 job：
 
-- `plan`：用 `nix eval --json .#systems` 读取 flake 声明的系统列表，作为构建矩阵的唯一来源（新增系统会自动新增 CI job）。
-- `eval`：`nix flake show` + `nix flake check --all-systems --no-build`，校验所有系统都能求值。
-- `build`：在原生 runner 上为每个系统真实构建两个 package，并对产物做冒烟测试。
+- `plan`：从 flake 读取 `.#systems` 与 `.#ci.buildTargets`，用 jq 算出原生构建矩阵。两个列表都来自 flake，新增平台会自动新增 CI job。
+- `eval`：`nix flake show` + `nix flake check --all-systems --no-build`，校验所有声明系统（含 riscv64-linux）都能求值。
+- `build`：在原生 runner 上为每个系统真实构建两个 package，并执行产物冒烟测试。
+- `riscv64`：交叉构建 riscv64 包，断言产物确实是 RISC-V ELF，再用 `qemu-riscv64` 真实执行 `--help`。
 
-各系统对应的 runner：`x86_64-linux` → `ubuntu-22.04`，`aarch64-linux` → `ubuntu-24.04-arm`，`x86_64-darwin` → `macos-15-intel`，`aarch64-darwin` → `macos-14`。
+各系统对应的 runner：`x86_64-linux` → `ubuntu-22.04`，`aarch64-linux` → `ubuntu-24.04-arm`，`x86_64-darwin` → `macos-15-intel`，`aarch64-darwin` → `macos-14`；riscv64 在 `ubuntu-22.04` 上交叉构建后模拟执行。
+
+> qemu 采用的是**直接调用** `qemu-riscv64`，而不是注册 `binfmt_misc`。后者需要在 hosted runner 上做特权配置，更容易碎。
 
 构建缓存使用 `DeterminateSystems/magic-nix-cache-action`（PR）和可选的 Cachix（配置 `CACHIX_AUTH_TOKEN` secret 后自动启用，未配置时跳过）。
 
