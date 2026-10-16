@@ -48,8 +48,7 @@ jobs:
         run: git diff --exit-code --stat
 
   # Each target system is built on a matching native runner, so the produced
-  # binary is always directly executable. x86_64-darwin (macos-13) is the
-  # exception: it is cross-built on Intel hardware and cannot be executed there.
+  # binary is always directly executable and the smoke test can run everywhere.
   build:
     needs: plan
     strategy:
@@ -64,8 +63,8 @@ jobs:
             runner: ubuntu-24.04-arm
             native: true
           - system: x86_64-darwin
-            runner: macos-13
-            native: false
+            runner: macos-15-intel
+            native: true
           - system: aarch64-darwin
             runner: macos-14
             native: true
